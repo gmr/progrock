@@ -33,9 +33,13 @@ Example use:
 import curses
 import datetime
 import locale
+import math
 import multiprocessing
 import os
-import Queue
+try:
+    import Queue as queue
+except ImportError:
+    import queue
 import threading
 import time
 
@@ -76,8 +80,8 @@ class _Process(object):
     :param curses.Window window: The window for the process progress
     :param float start: The epoch value for when the process started
     :param str status: The status text for the progress box
-    :param int steps: The number of steps for the progress bar
-    :param int value: The progress value for the progress bar
+    :param int|float steps: The number of steps for the progress bar
+    :param int|float value: The progress value for the progress bar
 
     """
     def __init__(self, process, window, start, status, steps, value):
@@ -90,56 +94,56 @@ class _Process(object):
         self.value = float(value)
 
 
-def increment(queue, value=1):
+def increment(ipc_queue, value=1):
     """Increment the progress value for the current process, passing in the
     queue exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
     :py:class:MultiProgress.new_process`.
 
-    :param multiprocessing.Queue queue: The IPC command queue
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int value: The value to increment by. Default: ``1``
 
     """
-    queue.put((_INCREMENT, os.getpid(), value))
+    ipc_queue.put((_INCREMENT, os.getpid(), value))
 
 
-def set_status(queue, status):
+def set_status(ipc_queue, status):
     """Set the status of current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
     :py:class:MultiProgress.new_process`.
 
-    :param multiprocessing.Queue queue: The IPC command queue
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param str status: The status text for the current process
 
     """
-    queue.put((_STATUS, os.getpid(), status))
+    ipc_queue.put((_STATUS, os.getpid(), status))
 
 
-def set_step_count(queue, steps):
+def set_step_count(ipc_queue, steps):
     """Set the number of steps for current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
     :py:class:MultiProgress.new_process`.
 
-    :param multiprocessing.Queue queue: The IPC command queue
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int steps: The number of steps for the current process
 
     """
-    queue.put((_STEPS, os.getpid(), steps))
+    ipc_queue.put((_STEPS, os.getpid(), steps))
 
 
-def set_value(queue, value):
+def set_value(ipc_queue, value):
     """Set the progress value for the current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
     :py:class:MultiProgress.new_process`.
 
-    :param multiprocessing.Queue queue: The IPC command queue
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int value: The value to set for the process
 
     """
-    queue.put((_VALUE, os.getpid(), value))
+    ipc_queue.put((_VALUE, os.getpid(), value))
 
 
 
@@ -224,12 +228,12 @@ class MultiProgress(object):
 
         :param multiprocessing.Process: The process to add
         :param str status: The status text for the process box
-        :param int steps: The number of steps for the progress bar
-        :param int value: Current progress value for the process
+        :param int|float steps: The number of steps for the progress bar
+        :param int|float value: Current progress value for the process
 
         """
-        start_y = (self._process_count / 2) * self.BOX_HEIGHT
-        start_x = (self._process_count % 2) * (self._screen_width / 2)
+        start_y = int(math.floor(self._process_count / 2) * self.BOX_HEIGHT)
+        start_x = (self._process_count % 2) * self._box_width
         self._maybe_resize_canvas(start_y)
 
         try:
@@ -258,8 +262,8 @@ class MultiProgress(object):
         :param tuple args: Positional arguments to pass into the process
         :param dict kwargs: Keyword arguments to pass into the process
         :param str status: The status text for the process box
-        :param int steps: The number of steps for the progress bar
-        :param int value: Current progress value for the process
+        :param int|float steps: The number of steps for the progress bar
+        :param int|float value: Current progress value for the process
         :return: multiprocessing.Process
 
         """
@@ -437,13 +441,13 @@ class MultiProgress(object):
         while not stop.is_set():
             try:
                 cmd, pid, value = ipc_queue.get(True, 1)
-            except (Queue.Empty, ValueError):
+            except (queue.Empty, ValueError):
                 continue
             self._process_update_command(cmd, pid, value)
 
     @property
     def _box_width(self):
-        return self._screen_width / 2
+        return int(self._screen_width / 2)
 
     @property
     def _canvas_height(self):
