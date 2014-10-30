@@ -1,2 +1,4 @@
+API
+===
 .. automodule:: progrock
    :members:

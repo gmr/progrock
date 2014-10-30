@@ -17,6 +17,12 @@ Requirements
 ------------
 There are no requirements outside of the Python standard library.
 
+Screenshot
+----------
+The following image shows the example code listing in action:
+
+.. image:: http://i.imgur.com/wi9MAdp.png
+
 API Documentation
 -----------------
 .. toctree::
