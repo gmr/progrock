@@ -1,5 +1,7 @@
 Version History
 ---------------
+- 0.2.1 [2014-10-30]
+ - Fix package distribution
 - 0.2.0 [2014-10-30]
  - Add application level progress bar
  - Add process start timer reset

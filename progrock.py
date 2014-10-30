@@ -8,7 +8,7 @@ This module is meant as a complement to :py:class:`multiprocessing.Process` and
 provide an easy to use, yet opinionated view of child process progress bars.
 
 """
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 import curses
 import datetime
