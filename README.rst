@@ -1,6 +1,9 @@
 progrock
 ========
-A multi-progressbar implementation to complement multiprocessing.Process.
+The ``progrock.MultiProgress`` class is used in conjunction with the
+methods exposed at the module level such as ``progrock.increment`` to
+create a full-screen experience allowing the user to track the progress of
+individual processes as they perform their work.
 
 |Version| |Downloads| |License|
 

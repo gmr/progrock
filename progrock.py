@@ -8,7 +8,7 @@ This module is meant as a complement to :py:class:`multiprocessing.Process` and
 provide an easy to use, yet opinionated view of child process progress bars.
 
 """
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 import curses
 import datetime
@@ -28,6 +28,9 @@ _INCREMENT = 1
 _STATUS = 2
 _STEPS = 3
 _VALUE = 4
+_APP_INCREMENT = 5
+_APP_STEPS = 6
+_RESET_PROC_START = 7
 
 
 class _Interval(threading.Thread):
@@ -88,6 +91,28 @@ def increment(ipc_queue, value=1):
     ipc_queue.put((_INCREMENT, os.getpid(), value))
 
 
+def increment_app(ipc_queue, value=1):
+    """Increment the progress value for the application, passing in the
+    queue exposed by ``MultiProgress.ipc_queue``.
+
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
+    :param int value: The value to increment by. Default: ``1``
+
+    """
+    ipc_queue.put((_APP_INCREMENT, 0, value))
+
+
+def set_app_step_count(ipc_queue, steps):
+    """Set the number of steps for the application, passing in the queue
+    exposed by ``MultiProgress.ipc_queue``.
+
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
+    :param int steps: The number of steps for the application.
+
+    """
+    ipc_queue.put((_STEPS, 0, steps))
+
+
 def set_status(ipc_queue, status):
     """Set the status of current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
@@ -127,7 +152,6 @@ def set_value(ipc_queue, value):
     ipc_queue.put((_VALUE, os.getpid(), value))
 
 
-
 class MultiProgress(object):
     """The MultiProgress class is responsible for rendering the progress screen
     using curses. In addition, it can wrap the creation of processes for you
@@ -136,6 +160,12 @@ class MultiProgress(object):
 
     If you do not pass in a ``title`` for the application, the Python file that
     is being run will be used as a title for the screen.
+
+    If you pass in ``steps``, a progress bar will be centered in the footer to
+    display the overall progress of an application. The bar can be incremented
+    from the parent process using :py:meth:`MultiProgress.increment_app` or
+    if you're incrementing from a child process, you can call
+    :py:meth:`progrock.increment_app` passing in ``ipc_queue``.
 
     :param str title: The application title
     :param int steps: Overall steps for the application
@@ -151,7 +181,7 @@ class MultiProgress(object):
     DEFAULT_STEPS = 100
     DEFAULT_STATUS = 'Initializing'
 
-    def __init__(self, title=None, steps=None, value=None):
+    def __init__(self, title=None, steps=None, value=0):
         locale.setlocale(locale.LC_ALL, '')
         self.ipc_queue = multiprocessing.Queue()
         self._canvas = None
@@ -163,8 +193,10 @@ class MultiProgress(object):
         self._process = dict()
         self._screen = None
         self._start = None
+        self._steps = steps
         self._stop = threading.Event()
         self._title = title or sys.argv[0]
+        self._value = value
         self._update_interval = _Interval(1, self._on_screen_update_interval)
         self._update_thread = threading.Thread(target=self._watch_ipc_queue,
                                                args=(self.ipc_queue,
@@ -233,6 +265,18 @@ class MultiProgress(object):
         self._draw_box(process.pid)
         self._draw_footer()
 
+    def increment_app(self, value=1):
+        """If using the application progress bar, increment the progress of
+        the bar.
+
+        :param int value: The value to increment by. Default: 1
+
+        """
+        with self._lock:
+            self._value += float(value)
+        if self._steps:
+            self._update_footer_progress()
+
     def new_process(self, target, name=None, args=None, kwargs=None,
                     status=DEFAULT_STATUS, steps=DEFAULT_STEPS, value=0):
         """Create and start new :py:class:`multiprocessing.Process` instance,
@@ -265,19 +309,8 @@ class MultiProgress(object):
     # Internal Methods
 
     def _box_progress(self, process):
-        percentage = process.value / process.steps
-        bar_width = self._progress_bar_width
-        fill = int(bar_width * percentage)
-        empty = bar_width - fill
-        if not empty:
-            return '[{0:{fill}<{width}}] {1:7.2%}'.format('', percentage,
-                                                          fill='#',
-                                                          width=bar_width)
-        return '[{0:{fill}<{width}}{1: <{empty}}] {2:7.2%}'.format('', '',
-                                                                   percentage,
-                                                                   fill='#',
-                                                                   width=fill,
-                                                                   empty=empty)
+        return self._progress_bar((process.value / process.steps),
+                                  self._progress_bar_width)
 
     def _box_status(self, process):
         duration = time.time() - process.start
@@ -304,6 +337,8 @@ class MultiProgress(object):
         self._footer.hline(0, 0, curses.ACS_HLINE, curses.COLS)
         self._footer.addstr(1, 1, '{0} Processes'.format(self._process_count))
         self._update_footer_time()
+        if self._steps:
+            self._update_footer_progress()
         self._footer.redrawwin()
 
     def _draw_header(self):
@@ -378,6 +413,26 @@ class MultiProgress(object):
             self._set_steps(self._process[pid], value)
         elif cmd == _VALUE:
             self._set_value(self._process[pid], value)
+        elif cmd == _APP_INCREMENT:
+            self._increment_app_value(value)
+        elif cmd == _APP_STEPS:
+            self._set_app_steps(value)
+        elif cmd == _RESET_PROC_START:
+            self._reset_process_start(self._process[pid])
+
+    @staticmethod
+    def _progress_bar(percentage, bar_width):
+        fill = int(bar_width * percentage)
+        empty = bar_width - fill
+        if not empty:
+            return '[{0:{fill}<{width}}] {1:7.2%}'.format('', percentage,
+                                                          fill='#',
+                                                          width=bar_width)
+        return '[{0:{fill}<{width}}{1: <{empty}}] {2:7.2%}'.format('', '',
+                                                                   percentage,
+                                                                   fill='#',
+                                                                   width=fill,
+                                                                   empty=empty)
 
     def _refresh_canvas(self):
         try:
@@ -388,10 +443,21 @@ class MultiProgress(object):
         except curses.error:
             pass
 
+    def _reset_process_start(self, process):
+        with self._lock:
+            process.start = time.time()
+        self._update_box_status(process)
+
     def _set_status(self, process, value):
         with self._lock:
             process.status = value
         self._update_box_status(process)
+
+    def _set_app_steps(self, value):
+        with self._lock:
+            self._steps = value
+        if self._steps is not None:
+            self._update_footer_progress()
 
     def _set_steps(self, process, value):
         with self._lock:
@@ -412,6 +478,17 @@ class MultiProgress(object):
     def _update_box_timers(self):
         for pid in self._process:
             self._update_box_status(self._process[pid])
+
+    def _update_footer_progress(self):
+        proc_text_len = len('{0} Processes'.format(self._process_count))
+        time_text_len = len('{0: >10.1f}s'.format(time.time() - self._start))
+        # Screen width - process text - timer - bar structure - padding
+        width = self._screen_width - proc_text_len - time_text_len - 11 - 14
+        percentage = float(self._value) / float(self._steps)
+        value = self._progress_bar(percentage, width)
+        start_x = int(math.floor(self._screen_width / 2) - math.floor(width/2))
+        self._footer.addstr(1, start_x, value)
+        self._footer.refresh()
 
     def _update_footer_time(self):
         value = '{0: >10.1f}s'.format(time.time() - self._start)

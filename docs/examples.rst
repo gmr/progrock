@@ -8,8 +8,10 @@ sleeping up to 1 second.
 
 .. code:: python
 
+    import multiprocessing
     import progrock
     import random
+    import time
 
     def example_runner(ipc_queue):
         # Update the processes status in its progress box
@@ -40,8 +42,10 @@ when done.
 
 .. code:: python
 
+    import multiprocessing
     import progrock
     import random
+    import time
 
     def example_runner(ipc_queue):
         # Update the processes status in its progress box
@@ -53,16 +57,19 @@ when done.
             time.sleep(random.random())
 
     processes = []
+    cpu_count = multiprocessing.cpu_count()
 
     # Create the MultiProgress instance
-    progress = progrock.MultiProgress('Example')
+    progress = progrock.MultiProgress('Example', cpu_count)
 
     # Initialize the screen
     progress.initialize()
 
     # Spawn a process per CPU and append it to the list of processes
-    for proc_num in range(0, multiprocessing.cpu_count()):
+    for proc_num in range(0, cpu_count):
         processes.append(progress.new_process(example_runner))
+        progress.increment_app()
+        time.sleep(random.random())
 
     # Wait for the processes to run
     while any([p.is_alive() for p in processes]):
