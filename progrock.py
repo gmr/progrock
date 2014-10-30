@@ -30,6 +30,8 @@ Example use:
             time.sleep(1)
 
 """
+__version__ = '0.1.0'
+
 import curses
 import datetime
 import locale
