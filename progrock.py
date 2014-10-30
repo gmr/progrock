@@ -1,4 +1,33 @@
-"""
+"""ProgRock: A multi-progressbar implementation to complement
+:python:class:`multiprocessing.Process`.
+
+Example use:
+
+.. code:: python
+
+    import random
+
+    def example_runner(ipc_queue):
+        # Update the processes status in its progress box
+        set_status(ipc_queue, 'Running')
+
+        # Increment the progress bar, sleeping up to one second per iteration
+        for iteration in range(0, 101):
+            increment(ipc_queue)
+            time.sleep(random.random())
+
+    processes = []
+
+    # Create the MultiProgress instance
+    with MultiProgress('Test Application') as progress:
+
+        # Spawn a process per CPU and append it to the list of processes
+        for proc_num in range(0, multiprocessing.cpu_count()):
+            processes.append(progress.new_process(example_runner))
+
+        # Wait for the processes to run
+        while any([p.is_alive() for p in processes]):
+            time.sleep(1)
 
 """
 import curses
@@ -10,9 +39,20 @@ import Queue
 import threading
 import time
 
+_INCREMENT = 1
+_STATUS = 2
+_STEPS = 3
+_VALUE = 4
+
 
 class _Interval(threading.Thread):
+    """The _Interval class is used to invoke the callback target every N
+    seconds.
 
+    :param int interval: The interval duration in seconds
+    :param method target: The callback method to invoke.
+
+    """
     def __init__(self, interval, target):
         super(_Interval, self).__init__()
         self.interval = interval
@@ -29,9 +69,19 @@ class _Interval(threading.Thread):
 
 
 class _Process(object):
+    """The _Process object wraps all of the attributes of a process that are
+    needed by the MultiProgress class for rendering status.
 
-    def __init__(self, pid, process, window, start, status, steps, value):
-        self.pid = pid
+    :param multiprocessing.Process process: The process object
+    :param curses.Window window: The window for the process progress
+    :param float start: The epoch value for when the process started
+    :param str status: The status text for the progress box
+    :param int steps: The number of steps for the progress bar
+    :param int value: The progress value for the progress bar
+
+    """
+    def __init__(self, process, window, start, status, steps, value):
+        self.pid = process.pid
         self.process = process
         self.window = window
         self.start = start
@@ -40,36 +90,112 @@ class _Process(object):
         self.value = float(value)
 
 
-def update_status(queue, process, status, steps, value):
-    queue.put((process.pid, status, steps, value))
+def increment(queue, value=1):
+    """Increment the progress value for the current process, passing in the
+    queue exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:MultiProgress.new_process`.
+
+    :param multiprocessing.Queue queue: The IPC command queue
+    :param int value: The value to increment by. Default: ``1``
+
+    """
+    queue.put((_INCREMENT, os.getpid(), value))
+
+
+def set_status(queue, status):
+    """Set the status of current process, passing in the queue
+    exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:MultiProgress.new_process`.
+
+    :param multiprocessing.Queue queue: The IPC command queue
+    :param str status: The status text for the current process
+
+    """
+    queue.put((_STATUS, os.getpid(), status))
+
+
+def set_step_count(queue, steps):
+    """Set the number of steps for current process, passing in the queue
+    exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:MultiProgress.new_process`.
+
+    :param multiprocessing.Queue queue: The IPC command queue
+    :param int steps: The number of steps for the current process
+
+    """
+    queue.put((_STEPS, os.getpid(), steps))
+
+
+def set_value(queue, value):
+    """Set the progress value for the current process, passing in the queue
+    exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:MultiProgress.new_process`.
+
+    :param multiprocessing.Queue queue: The IPC command queue
+    :param int value: The value to set for the process
+
+    """
+    queue.put((_VALUE, os.getpid(), value))
+
 
 
 class MultiProgress(object):
+    """The MultiProgress class is responsible for rendering the progress screen
+    using curses. In addition, it can wrap the creation of processes for you
+    to automatically pass in the :py:class:`multiprocessing.Queue` object that
+    is used to issue commands for updating the UI.
+
+    If you do not pass in a ``title`` for the application, the Python file that
+    is being run will be used as a title for the screen.
+
+    """
     BOX_HEIGHT = 4
     FOOTER_HEIGHT = 2
     HEADER_HEIGHT = 2
+
     TIME_FORMAT = '%Y-%m-%d %I:%M:%S'
 
-    def __init__(self, title):
+    DEFAULT_STEPS = 100
+    DEFAULT_STATUS = 'Initializing'
+
+    def __init__(self, title=None, steps=None, value=None):
         locale.setlocale(locale.LC_ALL, '')
-        self.update_queue = multiprocessing.Queue()
+        self.ipc_queue = multiprocessing.Queue()
         self._canvas = None
         self._code = locale.getpreferredencoding()
         self._footer = None
         self._header = None
         self._canvas_offset = 0
-        self._stop = threading.Event()
+        self._lock = threading.Lock()
         self._process = dict()
         self._screen = None
         self._start = None
+        self._stop = threading.Event()
         self._title = title
         self._update_interval = _Interval(1, self._on_screen_update_interval)
-        self._update_thread = threading.Thread(target=self._watch_update_queue,
-                                               args=(self.update_queue,
+        self._update_thread = threading.Thread(target=self._watch_ipc_queue,
+                                               args=(self.ipc_queue,
                                                      self._stop))
         self._update_thread.daemon = True
 
     def __enter__(self):
+        self.initialize()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
+    def initialize(self):
+        """Initialize the :py:class:`MultiProgress` screen. Should only be
+        invoked if not using the :py:class:`MultiProgress` instance as a
+        context manager. If the instance :py:class:`MultiProgress` instance is
+        used as a context manager, this is done automatically.
+
+        """
         self._start = time.time()
         curses.wrapper(self._initialize_screen)
         self._keyboard_input = threading.Thread(target=self._keyboard_handler,
@@ -79,21 +205,28 @@ class MultiProgress(object):
         self._keyboard_input.start()
         self._update_thread.start()
         self._update_interval.start()
-        return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def shutdown(self):
+        """Shutdown :py:class:`MultiProgress` screen. Must be called if the
+        :py:class:`MultiProgress` instance is not being used as a context
+        manager. If the instance :py:class:`MultiProgress` instance is used
+        as a context manager, this is done automatically.
+
+        """
         self._stop.set()
         self._update_interval.stop()
         curses.endwin()
 
-    def add_process(self, pid, status='Initializing', steps=100, value=0):
-        """Temporarily have pid, this really should be multiprocessing.Process
+    def add_process(self, process, status=DEFAULT_STATUS, steps=DEFAULT_STEPS,
+                    value=0):
+        """Add a process to the MultiProgress display. The process must
+        already have been started proior to invoking this method.
 
-        :param pid:
-        :param status:
-        :param steps:
-        :param value:
-        :return:
+        :param multiprocessing.Process: The process to add
+        :param str status: The status text for the process box
+        :param int steps: The number of steps for the progress bar
+        :param int value: Current progress value for the process
+
         """
         start_y = (self._process_count / 2) * self.BOX_HEIGHT
         start_x = (self._process_count % 2) * (self._screen_width / 2)
@@ -104,62 +237,43 @@ class MultiProgress(object):
                                          start_y, start_x)
         except curses.error as error:
             raise ValueError('Error creating window for pid %s (%i,%i): %s' %
-                             (pid, start_y, start_x, error))
+                             (process.pid, start_y, start_x, error))
 
-        self._process[pid] = _Process(pid, None, window, time.time(), status,
-                                      steps, value)
-        self._draw_box(pid)
+        self._process[process.pid] = _Process(process, window, time.time(),
+                                              status, steps, value)
+        self._draw_box(process.pid)
         self._draw_footer()
 
-    def update_process(self, pid, status=None, steps=None, value=None):
-        if status:
-            self._process[pid].status = status
-            self._update_box_status(self._process[pid])
-        if steps is not None:
-            self._process[pid].steps = float(steps)
-        if value is not None:
-            self._process[pid].value = float(value)
-            progress_bar = self._box_progress(self._process[pid])
-            self._process[pid].window.addstr(2, 2, progress_bar)
-        self._draw_box(pid)
+    def new_process(self, target, name=None, args=None, kwargs=None,
+                    status=DEFAULT_STATUS, steps=DEFAULT_STEPS, value=0):
+        """Create and start new :py:class:`multiprocessing.Process` instance,
+        automatically appending the update queue to the positional arguments
+        passed into the target when the process is started. Once the process
+        is created, it is added to the stack of processes in
+        :py:class:`MultiProgress`, bypassing the need to invoke
+        :py:meth:`MutiProgress.add_process`.
 
-    def _initialize_screen(self, screen):
-        curses.curs_set(0)
-        self._screen = screen
-        self._screen.erase()
-        self._screen.keypad(1)
-        self._screen.timeout(500)
-        self._header = screen.subwin(self.HEADER_HEIGHT, self._screen_width,
-                                     0, 0)
-        self._header.overwrite(self._screen)
-        self._draw_header()
-        self._footer = screen.subwin(self.FOOTER_HEIGHT, self._screen_width,
-                                     self._screen_height - 2, 0)
-        self._draw_footer()
-        self._canvas = curses.newpad(self._canvas_height, self._screen_width)
-        self._screen.refresh()
+        :param method target: The method to invoke when the process starts
+        :param str name: Process name
+        :param tuple args: Positional arguments to pass into the process
+        :param dict kwargs: Keyword arguments to pass into the process
+        :param str status: The status text for the process box
+        :param int steps: The number of steps for the progress bar
+        :param int value: Current progress value for the process
+        :return: multiprocessing.Process
 
-    def _keyboard_handler(self, screen, stop):
-        curses.cbreak()
-        curses.noecho()
-        while not stop.is_set():
-            cmd = screen.getch()
-            if cmd == 10 or cmd < 0:
-                continue
-            if cmd == 115:
-                self._canvas_offset += 1
-                max_offset = self._canvas_vheight - self._canvas_height
-                if self._canvas_offset > max_offset:
-                    self._canvas_offset = max_offset
-                    curses.beep()
-            elif cmd == 119:
-                self._canvas_offset -= 1
-                if self._canvas_offset <= 0:
-                    self._canvas_offset = 0
-                    curses.beep()
-            else:
-                continue
-            self._refresh_canvas()
+        """
+        args = [] if not args else list(args)
+        args.append(self.ipc_queue)
+        process = multiprocessing.Process(target=target,
+                                          name=name,
+                                          args=tuple(args),
+                                          kwargs=kwargs or dict())
+        process.start()
+        self.add_process(process, status, steps, value)
+        return process
+
+    # Internal Methods
 
     def _box_progress(self, process):
         percentage = process.value / process.steps
@@ -210,6 +324,49 @@ class MultiProgress(object):
         self._header.refresh()
         self._update_header_time()
 
+    def _increment_value(self, process, value):
+        with self._lock:
+            process.value += float(value)
+        self._update_box_progress(process)
+
+    def _initialize_screen(self, screen):
+        curses.curs_set(0)
+        self._screen = screen
+        self._screen.erase()
+        self._screen.keypad(1)
+        self._screen.timeout(500)
+        self._header = screen.subwin(self.HEADER_HEIGHT, self._screen_width,
+                                     0, 0)
+        self._header.overwrite(self._screen)
+        self._draw_header()
+        self._footer = screen.subwin(self.FOOTER_HEIGHT, self._screen_width,
+                                     self._screen_height - 2, 0)
+        self._draw_footer()
+        self._canvas = curses.newpad(self._canvas_height, self._screen_width)
+        self._screen.refresh()
+
+    def _keyboard_handler(self, screen, stop):
+        curses.cbreak()
+        curses.noecho()
+        while not stop.is_set():
+            cmd = screen.getch()
+            if cmd == 10 or cmd < 0:
+                continue
+            if cmd == 115:
+                self._canvas_offset += 1
+                max_offset = self._canvas_vheight - self._canvas_height
+                if self._canvas_offset > max_offset:
+                    self._canvas_offset = max_offset
+                    curses.beep()
+            elif cmd == 119:
+                self._canvas_offset -= 1
+                if self._canvas_offset <= 0:
+                    self._canvas_offset = 0
+                    curses.beep()
+            else:
+                continue
+            self._refresh_canvas()
+
     def _maybe_resize_canvas(self, start_y):
         canvas_height, _width = self._canvas.getmaxyx()
         if (start_y + self.BOX_HEIGHT) > canvas_height:
@@ -222,13 +379,42 @@ class MultiProgress(object):
         self._screen.refresh()
         self._refresh_canvas()
 
+    def _process_update_command(self, cmd, pid, value):
+        if cmd == _INCREMENT:
+            self._increment_value(self._process[pid], value)
+        elif cmd == _STATUS:
+            self._set_status(self._process[pid], value)
+        elif cmd == _STEPS:
+            self._set_steps(self._process[pid], value)
+        elif cmd == _VALUE:
+            self._set_value(self._process[pid], value)
+
     def _refresh_canvas(self):
         try:
-            self._canvas.refresh(self._canvas_offset, 0, self.HEADER_HEIGHT, 0,
+            self._canvas.refresh(self._canvas_offset, 0,
+                                 self.HEADER_HEIGHT, 0,
                                  self._canvas_height,
                                  self._screen_width)
         except curses.error:
             pass
+
+    def _set_status(self, process, value):
+        with self._lock:
+            process.status = value
+        self._update_box_status(process)
+
+    def _set_steps(self, process, value):
+        with self._lock:
+            process.steps = float(value)
+        self._update_box_progress(process)
+
+    def _set_value(self, process, value):
+        with self._lock:
+            process.value = float(value)
+        self._update_box_progress(process)
+
+    def _update_box_progress(self, process):
+        process.window.addstr(2, 2, self._box_progress(process))
 
     def _update_box_status(self, process):
         process.window.addstr(1, 2, self._box_status(process))
@@ -247,13 +433,13 @@ class MultiProgress(object):
         self._header.addstr(0, self._screen_width - len(value) - 1, value)
         self._header.refresh()
 
-    def _watch_update_queue(self, update_queue, stop):
+    def _watch_ipc_queue(self, ipc_queue, stop):
         while not stop.is_set():
             try:
-                update = update_queue.get(True, 1)
-            except Queue.Empty:
+                cmd, pid, value = ipc_queue.get(True, 1)
+            except (Queue.Empty, ValueError):
                 continue
-            self.update_process(*update)
+            self._process_update_command(cmd, pid, value)
 
     @property
     def _box_width(self):
@@ -288,23 +474,25 @@ class MultiProgress(object):
 
 
 if __name__ == '__main__':
+    import random
 
-    def example_runner(update_queue):
-        import random
-        random.seed()
-        for iteration in range(0, 1001):
+    def example_runner(ipc_queue):
+        # Update the processes status in its progress box
+        set_status(ipc_queue, 'Running')
+
+        # Increment the progress bar, sleeping up to one second per iteration
+        for iteration in range(0, 101):
+            increment(ipc_queue)
             time.sleep(random.random())
-            update_queue.put((os.getpid(), 'Iteration #%i' % iteration, None,
-                              iteration))
 
     processes = []
-    with MultiProgress('Test Application') as ui:
+
+    # Create the MultiProgress instance
+    with MultiProgress('Test Application') as progress:
+
+        # Spawn a process per CPU and append it to the list of processes
         for proc_num in range(0, multiprocessing.cpu_count()):
-            proc = multiprocessing.Process(target=example_runner,
-                                           args=(ui.update_queue,))
-            proc.start()
-            ui.add_process(proc.pid, 'Starting', 1000, 0)
-            processes.append(proc)
+            processes.append(progress.new_process(example_runner))
 
         # Wait for the processes to run
         while any([p.is_alive() for p in processes]):
