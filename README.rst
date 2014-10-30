@@ -50,12 +50,14 @@ will iterate 100 times, updating their progress bar and then sleeping up to
         # Increment the progress bar, sleeping up to one second per iteration
         for iteration in range(1, 101):
             progrock.increment(ipc_queue)
+            progrock.increment_app(ipc_queue)
             time.sleep(random.random())
 
     processes = []
 
     # Create the MultiProgress instance
-    with progrock.MultiProgress('Example') as progress:
+    steps = multiprocessing.cpu_count() * 100
+    with MultiProgress('Example', steps=steps) as progress:
 
         # Spawn a process per CPU and append it to the list of processes
         for proc_num in range(0, multiprocessing.cpu_count()):

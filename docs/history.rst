@@ -1,5 +1,9 @@
 Version History
 ---------------
+- 0.3.0 [2014-10-30]
+ - Add missing API for resetting process timer
+ - Fix bug in RPC based app progress incrementing
+ - Move footer progress bar updates to the global timer
 - 0.2.1 [2014-10-30]
  - Fix package distribution
 - 0.2.0 [2014-10-30]

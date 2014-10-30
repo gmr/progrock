@@ -8,7 +8,7 @@ This module is meant as a complement to :py:class:`multiprocessing.Process` and
 provide an easy to use, yet opinionated view of child process progress bars.
 
 """
-__version__ = '0.2.1'
+__version__ = '0.3.0'
 
 import curses
 import datetime
@@ -100,6 +100,18 @@ def increment_app(ipc_queue, value=1):
 
     """
     ipc_queue.put((_APP_INCREMENT, 0, value))
+
+
+def reset_start_time(ipc_queue):
+    """Restart the start time of a process, passing in the queue
+    exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:`MultiProgress.new_process`.
+
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
+
+    """
+    ipc_queue.put((_RESET_PROC_START, os.getpid(), 0))
 
 
 def set_app_step_count(ipc_queue, steps):
@@ -399,6 +411,8 @@ class MultiProgress(object):
 
     def _on_screen_update_interval(self):
         self._update_footer_time()
+        if self._steps:
+            self._update_footer_progress()
         self._update_header_time()
         self._update_box_timers()
         self._refresh_canvas()
@@ -414,7 +428,7 @@ class MultiProgress(object):
         elif cmd == _VALUE:
             self._set_value(self._process[pid], value)
         elif cmd == _APP_INCREMENT:
-            self._increment_app_value(value)
+            self.increment_app(value)
         elif cmd == _APP_STEPS:
             self._set_app_steps(value)
         elif cmd == _RESET_PROC_START:
@@ -488,7 +502,6 @@ class MultiProgress(object):
         value = self._progress_bar(percentage, width)
         start_x = int(math.floor(self._screen_width / 2) - math.floor(width/2))
         self._footer.addstr(1, start_x, value)
-        self._footer.refresh()
 
     def _update_footer_time(self):
         value = '{0: >10.1f}s'.format(time.time() - self._start)
@@ -550,12 +563,14 @@ if __name__ == '__main__':
         # Increment the progress bar, sleeping up to one second per iteration
         for iteration in range(0, 100):
             increment(ipc_queue)
+            increment_app(ipc_queue)
             time.sleep(random.random())
 
     processes = []
 
     # Create the MultiProgress instance
-    with MultiProgress() as progress:
+    steps = multiprocessing.cpu_count() * 100
+    with MultiProgress('Example', steps=steps) as progress:
 
         # Spawn a process per CPU and append it to the list of processes
         for proc_num in range(0, multiprocessing.cpu_count()):
