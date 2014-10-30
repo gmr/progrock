@@ -36,7 +36,7 @@ will iterate 100 times, updating their progress bar and then sleeping up to
 
     def example_runner(ipc_queue):
         # Update the processes status in its progress box
-        set_status(ipc_queue, 'Running')
+        progrock.set_status(ipc_queue, 'Running')
 
         # Increment the progress bar, sleeping up to one second per iteration
         for iteration in range(1, 101):
