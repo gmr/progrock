@@ -1,34 +1,11 @@
-"""ProgRock: A multi-progressbar implementation to complement
-:python:class:`multiprocessing.Process`.
+"""
+The :py:class:`progrock.MultiProgress` class is used in conjunction with the
+methods exposed at the module level such as :py:meth:`progrock.increment` to
+create a full-screen experience allowing the user to track the progress of
+individual processes as they perform their work.
 
-Example use:
-
-.. code:: python
-
-    import progrock
-    import random
-
-    def example_runner(ipc_queue):
-        # Update the processes status in its progress box
-        progrock.set_status(ipc_queue, 'Running')
-
-        # Increment the progress bar, sleeping up to one second per iteration
-        for iteration in range(0, 101):
-            progrock.increment(ipc_queue)
-            time.sleep(random.random())
-
-    processes = []
-
-    # Create the MultiProgress instance
-    with progrock.MultiProgress('Test Application') as progress:
-
-        # Spawn a process per CPU and append it to the list of processes
-        for proc_num in range(0, multiprocessing.cpu_count()):
-            processes.append(progress.new_process(example_runner))
-
-        # Wait for the processes to run
-        while any([p.is_alive() for p in processes]):
-            time.sleep(1)
+This module is meant as a complement to :py:class:`multiprocessing.Process` and
+provide an easy to use, yet opinionated view of child process progress bars.
 
 """
 __version__ = '0.1.0'
@@ -88,11 +65,11 @@ class _Process(object):
     :param int|float value: The progress value for the progress bar
 
     """
-    def __init__(self, process, window, start, status, steps, value):
+    def __init__(self, process, window, status, steps, value):
         self.pid = process.pid
         self.process = process
         self.window = window
-        self.start = start
+        self.start = time.time()
         self.status = status
         self.steps = float(steps)
         self.value = float(value)
@@ -102,7 +79,7 @@ def increment(ipc_queue, value=1):
     """Increment the progress value for the current process, passing in the
     queue exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
-    :py:class:MultiProgress.new_process`.
+    :py:class:`MultiProgress.new_process`.
 
     :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int value: The value to increment by. Default: ``1``
@@ -115,7 +92,7 @@ def set_status(ipc_queue, status):
     """Set the status of current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
-    :py:class:MultiProgress.new_process`.
+    :py:class:`MultiProgress.new_process`.
 
     :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param str status: The status text for the current process
@@ -128,7 +105,7 @@ def set_step_count(ipc_queue, steps):
     """Set the number of steps for current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
-    :py:class:MultiProgress.new_process`.
+    :py:class:`MultiProgress.new_process`.
 
     :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int steps: The number of steps for the current process
@@ -141,7 +118,7 @@ def set_value(ipc_queue, value):
     """Set the progress value for the current process, passing in the queue
     exposed by ``MultiProgress.ipc_queue`` and automatically passed into
     the target function when creating the process with
-    :py:class:MultiProgress.new_process`.
+    :py:class:`MultiProgress.new_process`.
 
     :param multiprocessing.Queue ipc_queue: The IPC command queue
     :param int value: The value to set for the process
@@ -159,6 +136,10 @@ class MultiProgress(object):
 
     If you do not pass in a ``title`` for the application, the Python file that
     is being run will be used as a title for the screen.
+
+    :param str title: The application title
+    :param int steps: Overall steps for the application
+    :param int value: Overall progress value for the application
 
     """
     BOX_HEIGHT = 4
@@ -247,8 +228,8 @@ class MultiProgress(object):
             raise ValueError('Error creating window for pid %s (%i,%i): %s' %
                              (process.pid, start_y, start_x, error))
 
-        self._process[process.pid] = _Process(process, window, time.time(),
-                                              status, steps, value)
+        self._process[process.pid] = _Process(process, window, status,
+                                              steps, value)
         self._draw_box(process.pid)
         self._draw_footer()
 
@@ -384,8 +365,9 @@ class MultiProgress(object):
     def _on_screen_update_interval(self):
         self._update_footer_time()
         self._update_header_time()
-        self._screen.refresh()
+        self._update_box_timers()
         self._refresh_canvas()
+        self._screen.refresh()
 
     def _process_update_command(self, cmd, pid, value):
         if cmd == _INCREMENT:
@@ -489,7 +471,7 @@ if __name__ == '__main__':
         set_status(ipc_queue, 'Running')
 
         # Increment the progress bar, sleeping up to one second per iteration
-        for iteration in range(0, 101):
+        for iteration in range(0, 100):
             increment(ipc_queue)
             time.sleep(random.random())
 
