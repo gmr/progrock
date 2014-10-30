@@ -1,5 +1,9 @@
 Version History
 ---------------
+- 0.3.1 [2014-10-30]
+ - Don't allow division by zero errors
+ - Add a reset_value top level function
+ - Don't allow incrementing beyond the number of steps
 - 0.3.0 [2014-10-30]
  - Add missing API for resetting process timer
  - Fix bug in RPC based app progress incrementing

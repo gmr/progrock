@@ -8,7 +8,7 @@ This module is meant as a complement to :py:class:`multiprocessing.Process` and
 provide an easy to use, yet opinionated view of child process progress bars.
 
 """
-__version__ = '0.3.0'
+__version__ = '0.3.1'
 
 import curses
 import datetime
@@ -112,6 +112,18 @@ def reset_start_time(ipc_queue):
 
     """
     ipc_queue.put((_RESET_PROC_START, os.getpid(), 0))
+
+
+def reset_value(ipc_queue):
+    """Reset the progress value for the current process, passing in the queue
+    exposed by ``MultiProgress.ipc_queue`` and automatically passed into
+    the target function when creating the process with
+    :py:class:`MultiProgress.new_process`.
+
+    :param multiprocessing.Queue ipc_queue: The IPC command queue
+
+    """
+    ipc_queue.put((_VALUE, os.getpid(), 0))
 
 
 def set_app_step_count(ipc_queue, steps):
@@ -286,6 +298,8 @@ class MultiProgress(object):
         """
         with self._lock:
             self._value += float(value)
+            if self._value > self._steps:
+                self._value = self._steps
         if self._steps:
             self._update_footer_progress()
 
@@ -321,6 +335,8 @@ class MultiProgress(object):
     # Internal Methods
 
     def _box_progress(self, process):
+        if not process.steps:
+            return self._progress_bar(0, self._progress_bar_width)
         return self._progress_bar((process.value / process.steps),
                                   self._progress_bar_width)
 
@@ -363,6 +379,8 @@ class MultiProgress(object):
     def _increment_value(self, process, value):
         with self._lock:
             process.value += float(value)
+            if process.value > process.steps:
+                process.value = process.steps
         self._update_box_progress(process)
 
     def _initialize_screen(self, screen):
@@ -494,6 +512,8 @@ class MultiProgress(object):
             self._update_box_status(self._process[pid])
 
     def _update_footer_progress(self):
+        if not self._steps:
+            return
         proc_text_len = len('{0} Processes'.format(self._process_count))
         time_text_len = len('{0: >10.1f}s'.format(time.time() - self._start))
         # Screen width - process text - timer - bar structure - padding
@@ -545,12 +565,12 @@ class MultiProgress(object):
     @property
     def _screen_height(self):
         height, _width = self._screen.getmaxyx()
-        return height
+        return height or curses.LINES
 
     @property
     def _screen_width(self):
         _height, width = self._screen.getmaxyx()
-        return width
+        return width or curses.COLS
 
 
 if __name__ == '__main__':
