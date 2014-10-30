@@ -5,21 +5,22 @@ Example use:
 
 .. code:: python
 
+    import progrock
     import random
 
     def example_runner(ipc_queue):
         # Update the processes status in its progress box
-        set_status(ipc_queue, 'Running')
+        progrock.set_status(ipc_queue, 'Running')
 
         # Increment the progress bar, sleeping up to one second per iteration
         for iteration in range(0, 101):
-            increment(ipc_queue)
+            progrock.increment(ipc_queue)
             time.sleep(random.random())
 
     processes = []
 
     # Create the MultiProgress instance
-    with MultiProgress('Test Application') as progress:
+    with progrock.MultiProgress('Test Application') as progress:
 
         # Spawn a process per CPU and append it to the list of processes
         for proc_num in range(0, multiprocessing.cpu_count()):
@@ -42,6 +43,7 @@ try:
     import Queue as queue
 except ImportError:
     import queue
+import sys
 import threading
 import time
 
@@ -181,7 +183,7 @@ class MultiProgress(object):
         self._screen = None
         self._start = None
         self._stop = threading.Event()
-        self._title = title
+        self._title = title or sys.argv[0]
         self._update_interval = _Interval(1, self._on_screen_update_interval)
         self._update_thread = threading.Thread(target=self._watch_ipc_queue,
                                                args=(self.ipc_queue,
@@ -494,7 +496,7 @@ if __name__ == '__main__':
     processes = []
 
     # Create the MultiProgress instance
-    with MultiProgress('Test Application') as progress:
+    with MultiProgress() as progress:
 
         # Spawn a process per CPU and append it to the list of processes
         for proc_num in range(0, multiprocessing.cpu_count()):
