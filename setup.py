@@ -9,7 +9,7 @@ desc = ('A multi-progressbar implementation to complement '
         'multiprocessing.Process')
 
 setuptools.setup(name='progrock',
-                 version='0.1.1',
+                 version='0.2.0',
                  description=desc,
                  long_description=open('README.rst').read(),
                  author='Gavin M. Roy',
