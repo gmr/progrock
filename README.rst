@@ -5,7 +5,7 @@ methods exposed at the module level such as ``progrock.increment`` to
 create a full-screen experience allowing the user to track the progress of
 individual processes as they perform their work.
 
-|Version| |Downloads| |License|
+|Version|
 
 Installation
 ------------
@@ -71,11 +71,5 @@ Version History
 ---------------
 Available at https://progrock.readthedocs.org
 
-.. |Version| image:: https://badge.fury.io/py/progrock.svg?
-   :target: http://badge.fury.io/py/progrock
-
-.. |Downloads| image:: https://img.shields.io/pypi/dm/progrock.svg
+.. |Version| image:: https://img.shields.io/pypi/v/progrock.svg?
    :target: https://pypi.python.org/pypi/progrock
-
-.. |License| image:: https://img.shields.io/pypi/l/progrock.svg
-   :target: https://progrock.readthedocs.org
