@@ -74,8 +74,8 @@ Available at https://progrock.readthedocs.org
 .. |Version| image:: https://badge.fury.io/py/progrock.svg?
    :target: http://badge.fury.io/py/progrock
 
-.. |Downloads| image:: https://pypip.in/d/progrock/badge.svg?
+.. |Downloads| image:: https://img.shields.io/pypi/dm/progrock.svg
    :target: https://pypi.python.org/pypi/progrock
 
-.. |License| image:: https://pypip.in/license/progrock/badge.svg?
+.. |License| image:: https://img.shields.io/pypi/l/progrock.svg
    :target: https://progrock.readthedocs.org
